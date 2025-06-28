@@ -1,0 +1,464 @@
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\keil5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\main.l
+                    -st) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include <reg52.h>
+   2          #include <string.h>
+   3          
+   4          // LCD1602引脚定义
+   5          //sbit RS = P1^0;
+   6          //sbit RW = P1^1;
+   7          //sbit EN = P1^2;
+   8          sbit RS=P2^6;
+   9          sbit RW=P2^5;
+  10          sbit EN=P2^7;
+  11          #define LCD_DATA P0
+  12          
+  13          // 调试指示灯引脚
+  14          sbit STATUS_LED = P2^0;  // 状态指示灯
+  15          sbit DATA_LED = P2^1;    // 数据接收指示灯
+  16          
+  17          // GPS数据结构
+  18          typedef struct {
+  19              char status;            // 定位状态：'A'有效，'V'无效
+  20              char ns, ew;            // 南北纬(N/S)、东西经(E/W)
+  21              unsigned long latitude; // 纬度（整数部分）
+  22              unsigned long longitude;// 经度（整数部分）
+  23              unsigned int lat_frac;  // 纬度小数部分（0-9999）
+  24              unsigned int lon_frac;  // 经度小数部分（0-9999）
+  25          } GPS_Data;
+  26          
+  27          // 优化内存使用
+  28          idata char gps_buffer[80];  // 缓冲区大小
+  29          bit gps_data_ready = 0;     // 数据就绪标志
+  30          data GPS_Data current_gps;  // 解析后的GPS数据
+  31          
+  32          // 调试计数器
+  33          unsigned int rx_count = 0;  // 串口接收计数
+  34          unsigned int parse_count = 0; // 解析计数
+  35          unsigned int gga_count = 0; // GPGGA语句计数
+  36          unsigned int other_count = 0; // 其他语句计数
+  37          
+  38          /*-------- LCD1602驱动函数 --------*/
+  39          void LCD_Delay(unsigned int ms) {
+  40   1          unsigned int i, j;
+  41   1          for (i = 0; i < ms; i++)
+  42   1              for (j = 0; j < 114; j++);
+  43   1      }
+  44          
+  45          void LCD_Write_Cmd(unsigned char cmd) {
+  46   1          RS = 0; RW = 0; EN = 0;
+  47   1          LCD_DATA = cmd;
+  48   1          EN = 1; LCD_Delay(1); EN = 0;
+  49   1      }
+  50          
+  51          void LCD_Write_Data(unsigned char dat) {
+  52   1          RS = 1; RW = 0; EN = 0;
+  53   1          LCD_DATA = dat;
+  54   1          EN = 1; LCD_Delay(1); EN = 0;
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 2   
+
+  55   1      }
+  56          
+  57          void LCD_Init() {
+  58   1          LCD_Write_Cmd(0x38);    // 8位模式，2行显示
+  59   1          LCD_Write_Cmd(0x0C);    // 开显示，关光标
+  60   1          LCD_Write_Cmd(0x06);    // 光标右移
+  61   1          LCD_Write_Cmd(0x01);    // 清屏
+  62   1          LCD_Delay(20);
+  63   1      }
+  64          
+  65          void LCD_Set_Pos(unsigned char row, unsigned char col) {
+  66   1          LCD_Write_Cmd(row ? 0xC0 | col : 0x80 | col);
+  67   1      }
+  68          
+  69          void LCD_Show_Str(unsigned char row, unsigned char col, char *str) {
+  70   1          LCD_Set_Pos(row, col);
+  71   1          while (*str) {
+  72   2              LCD_Write_Data(*str++);
+  73   2          }
+  74   1      }
+  75          
+  76          // 显示固定长度的数字
+  77          void LCD_Show_Num(unsigned char row, unsigned char col, unsigned long num, unsigned char len) {
+  78   1          char buf[10];
+  79   1          unsigned char i = 0;
+  80   1          
+  81   1          // 将数字转换为字符串（反向）
+  82   1          do {
+  83   2              buf[i++] = '0' + (num % 10);
+  84   2              num /= 10;
+  85   2          } while (num && i < len);
+  86   1          
+  87   1          // 补足前导零
+  88   1          while (i < len) buf[i++] = '0';
+  89   1          
+  90   1          // 反向输出（从最高位开始）
+  91   1          LCD_Set_Pos(row, col);
+  92   1          while (i--) {
+  93   2              LCD_Write_Data(buf[i]);
+  94   2          }
+  95   1      }
+  96          
+  97          /*-------- 串口初始化 --------*/
+  98          void UART_Init() {
+  99   1          TMOD = 0x20;            // 定时器1模式2（自动重载）
+ 100   1          TH1 = TL1 = 0xFD;       // 波特率9600（11.0592MHz）
+ 101   1          SCON = 0x50;            // 串口模式1，允许接收
+ 102   1          TR1 = 1;                // 启动定时器1
+ 103   1          EA = 1;                 // 开总中断
+ 104   1          ES = 1;                 // 开串口中断
+ 105   1          
+ 106   1          // 初始化指示灯
+ 107   1          STATUS_LED = 1;         // 初始关闭
+ 108   1          DATA_LED = 1;
+ 109   1      }
+ 110          
+ 111          /*-------- 通用NMEA解析器 --------*/
+ 112          bit GPS_Parse(char *buffer) {
+ 113   1          char *ptr = buffer;
+ 114   1          unsigned char field = 0;
+ 115   1          unsigned long temp;
+ 116   1          unsigned char i; // 循环变量必须在开头声明
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 3   
+
+ 117   1          char sentence_type[6] = {0};
+ 118   1          
+ 119   1          // 检查NMEA语句起始
+ 120   1          if (*ptr != '$') return 0;
+ 121   1          
+ 122   1          // 提取语句类型
+ 123   1          for (i = 0; i < 5 && ptr[i] != ',' && ptr[i] != '\0'; i++) {
+ 124   2              sentence_type[i] = ptr[i];
+ 125   2          }
+ 126   1          sentence_type[i] = '\0';
+ 127   1          
+ 128   1          // 只解析包含位置信息的语句
+ 129   1          if (strcmp(sentence_type, "$GPGGA") == 0) {
+ 130   2              gga_count++;
+ 131   2          } else if (strcmp(sentence_type, "$GNGGA") == 0) {
+ 132   2              gga_count++;
+ 133   2          } else if (strcmp(sentence_type, "$GPRMC") == 0) {
+ 134   2              other_count++;
+ 135   2          } else {
+ 136   2              return 0; // 忽略其他语句
+ 137   2          }
+ 138   1          
+ 139   1          // 通用解析逻辑
+ 140   1          while (*ptr && ptr < buffer + sizeof(gps_buffer)) {
+ 141   2              if (*ptr == ',') field++;
+ 142   2              
+ 143   2              // 纬度字段（GGA在第3字段，RMC在第4字段）
+ 144   2              if ((field == 2 && (strcmp(sentence_type, "$GPGGA") == 0 || strcmp(sentence_type, "$GNGGA") == 0))
+             - ||
+ 145   2                  (field == 3 && strcmp(sentence_type, "$GPRMC") == 0)) {
+ 146   3                  if (*(ptr+1) != ',' && *(ptr+1) != '\0') {
+ 147   4                      temp = 0;
+ 148   4                      ptr++; // 跳过逗号
+ 149   4                      
+ 150   4                      // 解析纬度整数部分
+ 151   4                      while (*ptr != '.' && *ptr != ',' && *ptr != '\0') {
+ 152   5                          if (*ptr >= '0' && *ptr <= '9') {
+ 153   6                              temp = temp * 10 + (*ptr - '0');
+ 154   6                          }
+ 155   5                          ptr++;
+ 156   5                      }
+ 157   4                      
+ 158   4                      if (temp > 0) {
+ 159   5                          current_gps.latitude = temp / 100;   // 度
+ 160   5                          current_gps.lat_frac = (temp % 100) * 100; // 分整数部分
+ 161   5                          
+ 162   5                          // 处理小数部分
+ 163   5                          if (*ptr == '.') {
+ 164   6                              ptr++;
+ 165   6                              temp = 0;
+ 166   6                              for (i = 0; i < 4 && *ptr >= '0' && *ptr <= '9'; i++) {
+ 167   7                                  temp = temp * 10 + (*ptr - '0');
+ 168   7                                  ptr++;
+ 169   7                              }
+ 170   6                              current_gps.lat_frac += temp; // 合并小数部分
+ 171   6                          }
+ 172   5                      }
+ 173   4                  }
+ 174   3              }
+ 175   2              
+ 176   2              // 南北纬字段
+ 177   2              if ((field == 3 && (strcmp(sentence_type, "$GPGGA") == 0 || strcmp(sentence_type, "$GNGGA") == 0))
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 4   
+
+             - ||
+ 178   2                  (field == 4 && strcmp(sentence_type, "$GPRMC") == 0)) {
+ 179   3                  if (*(ptr+1) == 'N' || *(ptr+1) == 'S') {
+ 180   4                      current_gps.ns = *(ptr+1);
+ 181   4                  }
+ 182   3              }
+ 183   2              
+ 184   2              // 经度字段
+ 185   2              if ((field == 4 && (strcmp(sentence_type, "$GPGGA") == 0 || strcmp(sentence_type, "$GNGGA") == 0))
+             - ||
+ 186   2                  (field == 5 && strcmp(sentence_type, "$GPRMC") == 0)) {
+ 187   3                  if (*(ptr+1) != ',' && *(ptr+1) != '\0') {
+ 188   4                      temp = 0;
+ 189   4                      ptr++; // 跳过逗号
+ 190   4                      
+ 191   4                      // 解析经度整数部分
+ 192   4                      while (*ptr != '.' && *ptr != ',' && *ptr != '\0') {
+ 193   5                          if (*ptr >= '0' && *ptr <= '9') {
+ 194   6                              temp = temp * 10 + (*ptr - '0');
+ 195   6                          }
+ 196   5                          ptr++;
+ 197   5                      }
+ 198   4                      
+ 199   4                      if (temp > 0) {
+ 200   5                          current_gps.longitude = temp / 100;   // 度
+ 201   5                          current_gps.lon_frac = (temp % 100) * 100; // 分整数部分
+ 202   5                          
+ 203   5                          // 处理小数部分
+ 204   5                          if (*ptr == '.') {
+ 205   6                              ptr++;
+ 206   6                              temp = 0;
+ 207   6                              for (i = 0; i < 4 && *ptr >= '0' && *ptr <= '9'; i++) {
+ 208   7                                  temp = temp * 10 + (*ptr - '0');
+ 209   7                                  ptr++;
+ 210   7                              }
+ 211   6                              current_gps.lon_frac += temp; // 合并小数部分
+ 212   6                          }
+ 213   5                      }
+ 214   4                  }
+ 215   3              }
+ 216   2              
+ 217   2              // 东西经字段
+ 218   2              if ((field == 5 && (strcmp(sentence_type, "$GPGGA") == 0 || strcmp(sentence_type, "$GNGGA") == 0))
+             - ||
+ 219   2                  (field == 6 && strcmp(sentence_type, "$GPRMC") == 0)) {
+ 220   3                  if (*(ptr+1) == 'E' || *(ptr+1) == 'W') {
+ 221   4                      current_gps.ew = *(ptr+1);
+ 222   4                  }
+ 223   3              }
+ 224   2              
+ 225   2              // 定位状态字段
+ 226   2              if ((field == 6 && (strcmp(sentence_type, "$GPGGA") == 0 || strcmp(sentence_type, "$GNGGA") == 0))
+             - ||
+ 227   2                  (field == 2 && strcmp(sentence_type, "$GPRMC") == 0)) {
+ 228   3                  if (*(ptr+1) == '0' || *(ptr+1) == '1' || *(ptr+1) == 'A' || *(ptr+1) == 'V') {
+ 229   4                      char status_char = *(ptr+1);
+ 230   4                      if (status_char == '0' || status_char == 'V') {
+ 231   5                          current_gps.status = 'V';
+ 232   5                      } else if (status_char == '1' || status_char == 'A') {
+ 233   5                          current_gps.status = 'A';
+ 234   5                          STATUS_LED = 0; // 点亮状态灯
+ 235   5                      }
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 5   
+
+ 236   4                      return 1; // 解析成功
+ 237   4                  }
+ 238   3              }
+ 239   2              
+ 240   2              ptr++;
+ 241   2          }
+ 242   1          return 0; // 解析失败
+ 243   1      }
+ 244          
+ 245          /*-------- 串口中断服务程序 --------*/
+ 246          void UART_ISR() interrupt 4 {
+ 247   1          static unsigned char i = 0;
+ 248   1          char ch;
+ 249   1          
+ 250   1          if (RI) {
+ 251   2              ch = SBUF;
+ 252   2              RI = 0;
+ 253   2              rx_count++; // 增加接收计数
+ 254   2              
+ 255   2              // 数据接收指示灯
+ 256   2              DATA_LED = 0; // 接收数据时点亮
+ 257   2              
+ 258   2              // 帧头检测
+ 259   2              if (ch == '$') {
+ 260   3                  i = 0;
+ 261   3                  gps_buffer[i++] = ch;
+ 262   3              } 
+ 263   2              // 数据接收
+ 264   2              else if (i > 0 && i < sizeof(gps_buffer) - 1) {
+ 265   3                  gps_buffer[i++] = ch;
+ 266   3              }
+ 267   2              
+ 268   2              // 帧尾检测（换行符）
+ 269   2              if (ch == '\n' && i > 10) { // 确保有足够的数据
+ 270   3                  gps_buffer[i] = '\0'; // 字符串结束符
+ 271   3                  if (GPS_Parse(gps_buffer)) { // 解析数据
+ 272   4                      gps_data_ready = 1;
+ 273   4                      parse_count++;
+ 274   4                  }
+ 275   3                  i = 0; // 重置缓冲区索引
+ 276   3              }
+ 277   2          }
+ 278   1      }
+ 279          
+ 280          /*-------- 显示诊断信息 --------*/
+ 281          void Show_Diagnostic_Info() {
+ 282   1          // 第一行：接收计数和语句类型
+ 283   1          LCD_Set_Pos(0, 0);
+ 284   1          LCD_Write_Data('R');
+ 285   1          LCD_Write_Data('x');
+ 286   1          LCD_Write_Data(':');
+ 287   1          LCD_Show_Num(0, 3, rx_count, 5);
+ 288   1          
+ 289   1          LCD_Set_Pos(0, 8);
+ 290   1          LCD_Write_Data('G');
+ 291   1          LCD_Write_Data('G');
+ 292   1          LCD_Write_Data('A');
+ 293   1          LCD_Write_Data(':');
+ 294   1          LCD_Show_Num(0, 12, gga_count, 3);
+ 295   1          
+ 296   1          // 第二行：其他语句计数和状态
+ 297   1          LCD_Set_Pos(1, 0);
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 6   
+
+ 298   1          LCD_Write_Data('O');
+ 299   1          LCD_Write_Data('t');
+ 300   1          LCD_Write_Data('h');
+ 301   1          LCD_Write_Data(':');
+ 302   1          LCD_Show_Num(1, 4, other_count, 3);
+ 303   1          
+ 304   1          LCD_Set_Pos(1, 8);
+ 305   1          LCD_Write_Data('S');
+ 306   1          LCD_Write_Data('t');
+ 307   1          LCD_Write_Data(':');
+ 308   1          LCD_Write_Data(current_gps.status);
+ 309   1      }
+ 310          
+ 311          /*-------- 显示原始数据（调试用） --------*/
+ 312          void Show_Raw_Data() {
+ 313   1          unsigned char i; // 循环变量必须在开头声明
+ 314   1          
+ 315   1          // 显示接收到的原始数据（前16字节）
+ 316   1          LCD_Set_Pos(0, 0);
+ 317   1          i = 0;
+ 318   1          while (i < 16 && gps_buffer[i] != '\0') {
+ 319   2              // 只显示可打印字符
+ 320   2              if (gps_buffer[i] >= 32 && gps_buffer[i] <= 126) {
+ 321   3                  LCD_Write_Data(gps_buffer[i]);
+ 322   3              } else {
+ 323   3                  LCD_Write_Data('?'); // 非打印字符显示为?
+ 324   3              }
+ 325   2              i++;
+ 326   2          }
+ 327   1          
+ 328   1          // 第二行显示后16字节
+ 329   1          LCD_Set_Pos(1, 0);
+ 330   1          i = 16;
+ 331   1          while (i < 32 && gps_buffer[i] != '\0') {
+ 332   2              if (gps_buffer[i] >= 32 && gps_buffer[i] <= 126) {
+ 333   3                  LCD_Write_Data(gps_buffer[i]);
+ 334   3              } else {
+ 335   3                  LCD_Write_Data('?');
+ 336   3              }
+ 337   2              i++;
+ 338   2          }
+ 339   1      }
+ 340          
+ 341          /*-------- 主函数 --------*/
+ 342          void main() {
+ 343   1          unsigned int debug_timer = 0;
+ 344   1          bit show_raw_data = 1; // 初始显示原始数据
+ 345   1          
+ 346   1          // 初始化变量
+ 347   1          current_gps.status = 'V';
+ 348   1          current_gps.ns = 'N';
+ 349   1          current_gps.ew = 'E';
+ 350   1          current_gps.latitude = 0;
+ 351   1          current_gps.longitude = 0;
+ 352   1          current_gps.lat_frac = 0;
+ 353   1          current_gps.lon_frac = 0;
+ 354   1          
+ 355   1          UART_Init();
+ 356   1          LCD_Init();
+ 357   1          
+ 358   1          // 初始显示
+ 359   1          LCD_Show_Str(0, 0, "GPS Debug Mode");
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 7   
+
+ 360   1          LCD_Show_Str(1, 1, "Show Raw Data");
+ 361   1          LCD_Delay(2000);
+ 362   1          LCD_Write_Cmd(0x01); // 清屏
+ 363   1          
+ 364   1          while (1) {
+ 365   2              debug_timer++;
+ 366   2              
+ 367   2              // 每0.5秒更新显示
+ 368   2              if (debug_timer >= 500) {
+ 369   3                  if (show_raw_data) {
+ 370   4                      Show_Raw_Data();
+ 371   4                  } else {
+ 372   4                      Show_Diagnostic_Info();
+ 373   4                  }
+ 374   3                  
+ 375   3                  // 熄灭数据指示灯
+ 376   3                  DATA_LED = 1;
+ 377   3                  debug_timer = 0;
+ 378   3              }
+ 379   2              
+ 380   2              // 如果收到有效数据，切换为解析显示
+ 381   2              if (gps_data_ready) {
+ 382   3                  show_raw_data = 0;
+ 383   3                  
+ 384   3                  // 第一行显示纬度
+ 385   3                  LCD_Set_Pos(0, 0);
+ 386   3                  LCD_Write_Data('L');
+ 387   3                  LCD_Write_Data('a');
+ 388   3                  LCD_Write_Data('t');
+ 389   3                  LCD_Write_Data(':');
+ 390   3                  LCD_Show_Num(0, 4, current_gps.latitude, 2);
+ 391   3                  LCD_Write_Data('.');
+ 392   3                  LCD_Show_Num(0, 7, current_gps.lat_frac, 4);
+ 393   3                  LCD_Set_Pos(0, 14);
+ 394   3                  LCD_Write_Data(current_gps.ns);
+ 395   3                  LCD_Set_Pos(0, 15);
+ 396   3                  LCD_Write_Data(current_gps.status);
+ 397   3                  
+ 398   3                  // 第二行显示经度
+ 399   3                  LCD_Set_Pos(1, 0);
+ 400   3                  LCD_Write_Data('L');
+ 401   3                  LCD_Write_Data('o');
+ 402   3                  LCD_Write_Data('n');
+ 403   3                  LCD_Write_Data(':');
+ 404   3                  LCD_Show_Num(1, 4, current_gps.longitude, 3);
+ 405   3                  LCD_Write_Data('.');
+ 406   3                  LCD_Show_Num(1, 8, current_gps.lon_frac, 4);
+ 407   3                  LCD_Set_Pos(1, 14);
+ 408   3                  LCD_Write_Data(current_gps.ew);
+ 409   3                  
+ 410   3                  gps_data_ready = 0;
+ 411   3              }
+ 412   2              
+ 413   2              // 如果连续10秒无有效数据，返回原始数据显示
+ 414   2              if (debug_timer > 10000 && parse_count == 0) {
+ 415   3                  show_raw_data = 1;
+ 416   3                  LCD_Write_Cmd(0x01); // 清屏
+ 417   3              }
+ 418   2              
+ 419   2              LCD_Delay(1);
+ 420   2          }
+ 421   1      }
+C51 COMPILER V9.54   MAIN                                                                  06/27/2025 20:40:25 PAGE 8   
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2486    ----
+   CONSTANT SIZE    =     56    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     24      42
+   IDATA SIZE       =     80    ----
+   BIT SIZE         =      1       1
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

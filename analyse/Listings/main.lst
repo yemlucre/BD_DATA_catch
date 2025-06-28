@@ -1,0 +1,204 @@
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\Keil5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\main.l
+                    -st) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include <reg52.h>
+   2          #include <intrins.h>
+   3          #include "LCD1602.h"
+   4          #include "Delay.h"
+   5          #include "FONT.h"
+   6          /*
+   7           * 串口接收状态指示变量
+   8           * GPS_i 是接收字段的索引（比如接收小时、分钟、经纬度各位数时用的）
+   9           * RX_count 是状态机的状态（接收NMEA语句逐步解析时用的）
+  10           */
+  11          unsigned char GPS_i = 0;
+  12          unsigned char RX_count = 0;
+  13          
+  14          /*
+  15           * GPS 信息结构体
+  16           * 用于保存解析出的时间和经纬度
+  17           */
+  18          data struct {
+  19              unsigned char EW;                    // E / W
+  20              unsigned char latiude_Degree[5];     // 纬度数值各位（假设拆成5位数字）
+  21          
+  22              unsigned char NS;                    // N / S
+  23              unsigned char longitude_Degree[4];   // 经度数值各位（拆成4位数字）
+  24          
+  25              unsigned char time_hour[2];          // 小时（2位）
+  26              unsigned char time_min[2];           // 分钟（2位）
+  27              unsigned char time_sec[2];           // 秒（2位）
+  28          } GPS_INFO = {
+  29              'E', {1, 1, 3, 2, 4},
+  30              'N', {2, 4, 1, 7},
+  31              {1, 1}, {2, 4}, {0, 8}
+  32          }; // 预设初始值便于上电后调试显示
+  33          
+  34          /*
+  35           * 串口初始化
+  36           * 9600bps@11.0592MHz
+  37           */
+  38          void UsartInit()
+  39          {
+  40   1          TMOD = 0x20;      // 定时器1，方式2（8位自动重装）
+  41   1          SCON = 0x50;      // 串口工作方式1，允许接收
+  42   1          TH1 = 0xFA;       // 波特率设置
+  43   1          TL1 = TH1;
+  44   1          PCON = 0x80;      // SMOD=1，波特率加倍
+  45   1          EA = 1;           // 开总中断
+  46   1          ES = 1;           // 开串口中断
+  47   1          TR1 = 1;          // 启动定时器1
+  48   1      }
+  49          
+  50          
+  51          /*
+  52           * 主函数
+  53           * 初始化LCD并循环刷新显示
+  54           */
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 2   
+
+  55          void main()
+  56          {
+  57   1          LCD_Init();        // 初始化LCD
+  58   1          UsartInit();      // 初始化串口
+  59   1      
+  60   1        
+  61   1          while (1)
+  62   1          {
+  63   2      
+  64   2              // 经度方向
+  65   2              if (GPS_INFO.EW == 'E')
+  66   2                  LCD_ShowChar(0, 1, 'E'); // “东”
+  67   2              else if (GPS_INFO.EW == 'W')
+  68   2                  LCD_ShowChar(0, 1, 'W'); // “西”
+  69   2      
+  70   2              // 经度数值
+  71   2              LCD_ShowChar(0, 4,GPS_INFO.latiude_Degree[0]);  // 经度百位
+  72   2              LCD_ShowChar(0, 5,GPS_INFO.latiude_Degree[1]);   // 十位
+  73   2              LCD_ShowChar(0, 6,GPS_INFO.latiude_Degree[2]);   // 个位
+  74   2              LCD_ShowChar(0, 8,GPS_INFO.latiude_Degree[3]);  // 分十位
+  75   2              LCD_ShowChar(0, 9,GPS_INFO.latiude_Degree[4]);  // 分个位
+  76   2      
+  77   2              // 纬度方向
+  78   2              if (GPS_INFO.NS == 'S')
+  79   2                  LCD_ShowChar(1, 1, 'S');  // “南”
+  80   2              else if (GPS_INFO.NS == 'N')
+  81   2                  LCD_ShowChar(1, 1, 'N'); // “北”
+  82   2      
+  83   2              // 纬度数值
+  84   2              LCD_ShowChar(1, 5, GPS_INFO.longitude_Degree[0]); // 纬度百位
+  85   2              LCD_ShowChar(1, 6, GPS_INFO.longitude_Degree[1]); // 十位
+  86   2              LCD_ShowChar(1, 8, GPS_INFO.longitude_Degree[2]);// 分十位
+  87   2              LCD_ShowChar(1, 9, GPS_INFO.longitude_Degree[3]);// 分个位
+  88   2              
+  89   2              Delay(100);
+  90   2          }
+  91   1      }
+  92          
+  93          
+  94          /*
+  95           * 串口中断服务函数
+  96           * 负责解析$GPGGA句型里提取的时间、经度、纬度等信息
+  97           */
+  98          /*
+  99           * 串口中断服务函数
+ 100           * 负责解析$GPRMC句型里提取的时间、经度、纬度等信息
+ 101           * 只要大致能显示即可
+ 102           */
+ 103          void Usart() interrupt 4
+ 104          {
+ 105   1          unsigned char receiveData;
+ 106   1      
+ 107   1          if (RI)
+ 108   1          {
+ 109   2              receiveData = SBUF;
+ 110   2              RI = 0;
+ 111   2      
+ 112   2              switch (RX_count)
+ 113   2              {
+ 114   3                  // ----------------- 头部 $GNRMC, -----------------
+ 115   3                  case 0: RX_count = (receiveData == 'G') ? 1 : 0; break;
+ 116   3                  case 1: RX_count = (receiveData == 'N') ? 2 : 0; break;
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 3   
+
+ 117   3                  case 2: RX_count = (receiveData == 'R') ? 3 : 0; break;
+ 118   3                  case 3: RX_count = (receiveData == 'M') ? 4 : 0; break;
+ 119   3                  case 4: RX_count = (receiveData == 'C') ? 5 : 0; break;
+ 120   3                  case 5: RX_count = (receiveData == ',') ? 6 : 0; break;
+ 121   3      
+ 122   3                  // ----------------- 6~8 跳过字段1(时间)和字段2(状态A/V) -----------------
+ 123   3                  case 6:
+ 124   3                      if (receiveData == ',') RX_count = 7;
+ 125   3                      break;
+ 126   3                  case 7:
+ 127   3                      if (receiveData == ',') RX_count = 8;
+ 128   3                      break;
+ 129   3      
+ 130   3                  // ----------------- 8: 纬度字段（数字部分） -----------------
+ 131   3                  case 8:
+ 132   3                      if (receiveData == ',') {
+ 133   4                          RX_count = 9;
+ 134   4                          GPS_i = 0;
+ 135   4                      }
+ 136   3                      else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 5)
+ 137   3                          GPS_INFO.latiude_Degree[GPS_i++] = receiveData - '0';
+ 138   3                      break;
+ 139   3      
+ 140   3                  // ----------------- 9: N/S方向 -----------------
+ 141   3                  case 9:
+ 142   3                      GPS_INFO.NS = receiveData;
+ 143   3                      RX_count = 10;
+ 144   3                      break;
+ 145   3      
+ 146   3                  // ----------------- 10: 逗号之后到经度字段 -----------------
+ 147   3                  case 10:
+ 148   3                      if (receiveData == ',') RX_count = 11;
+ 149   3                      break;
+ 150   3      
+ 151   3                  // ----------------- 11: 经度字段（数字部分） -----------------
+ 152   3                  case 11:
+ 153   3                      if (receiveData == ',') {
+ 154   4                          RX_count = 12;
+ 155   4                          GPS_i = 0;
+ 156   4                      }
+ 157   3                      else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 4)
+ 158   3                          GPS_INFO.longitude_Degree[GPS_i++] = receiveData - '0';
+ 159   3                      break;
+ 160   3      
+ 161   3                  // ----------------- 12: E/W方向 -----------------
+ 162   3                  case 12:
+ 163   3                      GPS_INFO.EW = receiveData;
+ 164   3                      RX_count = 0;
+ 165   3                      break;
+ 166   3      
+ 167   3                  default:
+ 168   3                      RX_count = 0;
+ 169   3                      break;
+ 170   3              }
+ 171   2          }
+ 172   1          else
+ 173   1              TI = 0;
+ 174   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    495    ----
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 4   
+
+   CONSTANT SIZE    =    704    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     19    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
