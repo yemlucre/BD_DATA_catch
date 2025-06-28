@@ -1,0 +1,151 @@
+C51 COMPILER V9.54   BD                                                                    06/26/2025 16:22:36 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE BD
+OBJECT MODULE PLACED IN .\Objects\BD.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE BD.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\BD.lst) O
+                    -BJECT(.\Objects\BD.obj)
+
+line level    source
+
+   1          #include <REGX52.H>
+   2          #include <string.h>
+   3          #include "Delay.h"
+   4          
+   5          char gpsBuffer[50];
+   6          unsigned char gpsIndex = 0;
+   7          bit gpsReady = 0;
+   8          
+   9          typedef struct {
+  10              char latitude[15];
+  11              char longitude[15];
+  12          } GpsData_t;
+  13          
+  14          
+  15          
+  16          unsigned char parseGpsFromBuffer(const char *buffer, GpsData_t *gpsData)
+  17          {
+  18   1          unsigned char i;
+  19   1          unsigned char field_index;
+  20   1          unsigned int buf_index;
+  21   1          unsigned char lat_idx;
+  22   1          unsigned char lon_idx;
+  23   1          char tmp[15];
+  24   1          unsigned char tmp_idx;
+  25   1      
+  26   1          if (!buffer || !gpsData)
+  27   1              return 0;
+  28   1      
+  29   1          // 判断开头7字节是不是 "$GNGLL,"
+  30   1          for (i = 0; i < 7; i++) {
+  31   2              if (buffer[i] != "$GNGLL,"[i])
+  32   2                  return 0;
+  33   2          }
+  34   1      
+  35   1          field_index = 0;
+  36   1          buf_index = 7;  // 跳过 "$GNGLL,"
+  37   1          lat_idx = 0;
+  38   1          lon_idx = 0;
+  39   1          tmp_idx = 0;
+  40   1      
+  41   1          while (buffer[buf_index] != '\0' && buffer[buf_index] != '*') {
+  42   2              if (buffer[buf_index] == ',' || buffer[buf_index] == '\r' || buffer[buf_index] == '\n') {
+  43   3                  tmp[tmp_idx] = '\0';
+  44   3                  if (field_index == 1) {  // 纬度
+  45   4                      lat_idx = 0;
+  46   4                      for (i = 0; tmp[i] != '\0' && i < 14; i++, lat_idx++)
+  47   4                          gpsData->latitude[lat_idx] = tmp[i];
+  48   4                      gpsData->latitude[lat_idx] = '\0';
+  49   4                  } else if (field_index == 2) { // 纬度方向
+  50   4                      if (lat_idx < 14) {
+  51   5                          gpsData->latitude[lat_idx++] = tmp[0];
+  52   5                          gpsData->latitude[lat_idx] = '\0';
+  53   5                      }
+  54   4                  } else if (field_index == 3) { // 经度
+C51 COMPILER V9.54   BD                                                                    06/26/2025 16:22:36 PAGE 2   
+
+  55   4                      lon_idx = 0;
+  56   4                      for (i = 0; tmp[i] != '\0' && i < 14; i++, lon_idx++)
+  57   4                          gpsData->longitude[lon_idx] = tmp[i];
+  58   4                      gpsData->longitude[lon_idx] = '\0';
+  59   4                  } else if (field_index == 4) { // 经度方向
+  60   4                      if (lon_idx < 14) {
+  61   5                          gpsData->longitude[lon_idx++] = tmp[0];
+  62   5                          gpsData->longitude[lon_idx] = '\0';
+  63   5                      }
+  64   4                      break;  // 解析完毕
+  65   4                  }
+  66   3                  tmp_idx = 0;
+  67   3                  field_index++;
+  68   3              } else {
+  69   3                  if (tmp_idx < 14)
+  70   3                      tmp[tmp_idx++] = buffer[buf_index];
+  71   3              }
+  72   2              buf_index++;
+  73   2          }
+  74   1      
+  75   1          return 1;
+  76   1      }
+  77          
+  78          
+  79          // 串口初始化函数
+  80          void GPS_UART_Init(void)
+  81          {
+  82   1          TMOD &= 0x0F;
+  83   1          TMOD |= 0x20;    // Timer1模式2
+  84   1          TH1 = 0xFD;      // 9600bps@11.0592MHz
+  85   1          TL1 = 0xFD;
+  86   1          TR1 = 1;         // 启动定时器
+  87   1          SCON = 0x50;     // 8位数据，可变波特率
+  88   1          TI = 1;
+  89   1          RI = 0;
+  90   1          ES = 1;          // 使能串口中断
+  91   1          EA = 1;          // 全局中断使能
+  92   1      }
+  93          
+  94          // 串口中断服务函数（用户需在主工程中连接）
+  95          void UART_ISR(void) interrupt 4
+  96          {
+  97   1          if (RI)
+  98   1          {
+  99   2              char ch = SBUF;
+ 100   2              RI = 0;
+ 101   2      
+ 102   2              if (ch == '$') gpsIndex = 0;  // 句子开头
+ 103   2      
+ 104   2              if (gpsIndex < sizeof(gpsBuffer) - 1)
+ 105   2              {
+ 106   3                  gpsBuffer[gpsIndex++] = ch;
+ 107   3      
+ 108   3                  if (ch == '\n' || ch == '\r') // 一条结束
+ 109   3                  {
+ 110   4                      gpsBuffer[gpsIndex] = '\0';  // 结束符
+ 111   4                      gpsReady = 1;                // 设置标志
+ 112   4                      gpsIndex = 0;                // 准备下一条
+ 113   4                  }
+ 114   3              }
+ 115   2              else
+ 116   2              {
+C51 COMPILER V9.54   BD                                                                    06/26/2025 16:22:36 PAGE 3   
+
+ 117   3                  gpsIndex = 0;  // 防止溢出，强制重置
+ 118   3              }
+ 119   2          }
+ 120   1      
+ 121   1          if (TI) TI = 0;
+ 122   1      }
+ 123          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    541    ----
+   CONSTANT SIZE    =      8    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     51      29
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

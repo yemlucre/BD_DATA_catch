@@ -1,0 +1,139 @@
+C51 COMPILER V9.59.0.0   GPS_MODULE                                                        06/28/2025 17:47:39 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE GPS_MODULE
+OBJECT MODULE PLACED IN .\Objects\gps_module.obj
+COMPILER INVOKED BY: D:\Keil5\C51\BIN\C51.EXE gps_module.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\
+                    -gps_module.lst) TABS(2) OBJECT(.\Objects\gps_module.obj)
+
+line level    source
+
+   1          #include "gps_module.h"
+   2          #include <REGX52.H>
+   3          #include <string.h>
+   4          #define GPS_RX_BUF_SIZE 256
+   5          // 放到 XDATA 区，避免占用 DATA 段
+   6          static xdata char parse_buf[100];
+   7          static xdata volatile char rx_buf[GPS_RX_BUF_SIZE];
+   8          static volatile unsigned int rx_head = 0;
+   9          static volatile unsigned int rx_tail = 0;
+  10          
+  11          static int uart_getchar(void) {
+  12   1          char c;
+  13   1          if (rx_tail == rx_head) return -1;
+  14   1          c = rx_buf[rx_tail];
+  15   1          rx_tail = (rx_tail + 1) % GPS_RX_BUF_SIZE;
+  16   1          return c;
+  17   1      }
+  18          
+  19          void GPS_UART_Init(void)
+  20          {
+  21   1          TMOD &= 0x0F;
+  22   1          TMOD |= 0x20;    // Timer1模式2
+  23   1          TH1 = 0xFD;      // 9600bps@11.0592MHz
+  24   1          TL1 = 0xFD;
+  25   1          TR1 = 1;         // 启动定时器
+  26   1          SCON = 0x50;     // 8位数据，可变波特率
+  27   1          TI = 1;
+  28   1          RI = 0;
+  29   1          ES = 1;          // 使能串口中断
+  30   1          EA = 1;          // 全局中断使能
+  31   1      }
+  32          
+  33          void UART_ISR(void) interrupt 4
+  34          {
+  35   1          char c;
+  36   1          unsigned int next;
+  37   1      
+  38   1          if (RI) {
+  39   2              RI = 0;
+  40   2              c = SBUF;
+  41   2              next = (rx_head + 1) % GPS_RX_BUF_SIZE;
+  42   2              if (next != rx_tail) {
+  43   3                  rx_buf[rx_head] = c;
+  44   3                  rx_head = next;
+  45   3              }
+  46   2          }
+  47   1          if (TI) {
+  48   2              TI = 0;
+  49   2          }
+  50   1      }
+  51          
+  52          int GPS_GetSentence(char *sentence, int max_len) 
+  53          {
+  54   1          static int idx = 0;
+C51 COMPILER V9.59.0.0   GPS_MODULE                                                        06/28/2025 17:47:39 PAGE 2   
+
+  55   1          int c;
+  56   1          while ((c = uart_getchar()) != -1) {
+  57   2              if (c == '$') {
+  58   3                  idx = 0;
+  59   3              }
+  60   2              if (idx < max_len - 1) {
+  61   3                  sentence[idx++] = (char)c;
+  62   3              }
+  63   2              if (c == '\n' && idx > 6) {
+  64   3                  sentence[idx] = 0;
+  65   3                  return 1;
+  66   3              }
+  67   2          }
+  68   1          return 0;
+  69   1      }
+  70          
+  71          int GPS_ParseGPRMC(const char *sentence, GPS_Data_t *da) 
+  72          {
+  73   1          char *token;
+  74   1          int field = 0;
+  75   1      
+  76   1          if (!sentence || !da)
+  77   1              return 0;
+  78   1      
+  79   1          if (strstr(sentence, "GPRMC") == NULL)
+  80   1              return 0;
+  81   1      
+  82   1          strcpy(parse_buf, sentence);
+  83   1      
+  84   1          token = strtok(parse_buf, ",");
+  85   1      
+  86   1          while (token) {
+  87   2              field++;
+  88   2              switch (field) {
+  89   3                  case 3:
+  90   3                      strcpy(da->latitude, token);
+  91   3                      break;
+  92   3                  case 4:
+  93   3                      da->lat_dir = token[0];
+  94   3                      break;
+  95   3                  case 5:
+  96   3                      strcpy(da->longitude, token);
+  97   3                      break;
+  98   3                  case 6:
+  99   3                      da->lon_dir = token[0];
+ 100   3                      break;
+ 101   3                  default:
+ 102   3                      break;
+ 103   3              }
+ 104   2              token = strtok(NULL, ",");
+ 105   2          }
+ 106   1      
+ 107   1          if (da->latitude[0] == '\0' || da->longitude[0] == '\0')
+ 108   1              return 0;
+ 109   1      
+ 110   1          return 1;
+ 111   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    551    ----
+   CONSTANT SIZE    =      8    ----
+C51 COMPILER V9.59.0.0   GPS_MODULE                                                        06/28/2025 17:47:39 PAGE 3   
+
+   XDATA SIZE       =    356    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      6      18
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

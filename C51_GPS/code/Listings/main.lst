@@ -1,0 +1,208 @@
+C51 COMPILER V9.59.0.0   MAIN                                                              06/27/2025 21:57:59 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\Keil5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\main.l
+                    -st) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include <reg52.h>
+   2          #include <intrins.h>
+   3          #include <LCD.h>
+   4          #include <FONT.h>
+   5          
+   6          
+   7          unsigned char GPS_i=0;//接收移位量
+   8          unsigned char RX_count=0;//GPS接收状态指示变量
+   9          
+  10          data struct{
+  11              
+  12            unsigned char EW;//东经/西经
+  13            unsigned char latiude_Degree[5];//经度
+  14          
+  15            
+  16            unsigned char NS;//南/北纬
+  17            unsigned char longitude_Degree[4];//维度_度
+  18          
+  19            //时分秒
+  20            unsigned char time_hour[2];
+  21            unsigned char time_min[2];
+  22            unsigned char time_sec[2];
+  23          //}GPS_INFO;  
+  24          }GPS_INFO={'E',{1,1,3,2,4},'N',{2,4,1,7},{1,1},{2,4},{0,8}};//预设值方便测试
+  25          
+  26          void UsartInit()
+  27          {
+  28   1          TMOD = 0x20;
+  29   1          SCON = 0x50;
+  30   1          TH1 = 0xFA;
+  31   1          TL1 = TH1;
+  32   1          PCON = 0x80;
+  33   1          EA = 1;
+  34   1          ES = 1;
+  35   1          TR1 = 1;
+  36   1      }
+  37          
+  38          
+  39          
+  40          
+  41          void main()
+  42          {
+  43   1        
+  44   1        InitLCD();//LCD初始化
+  45   1        ClearScreen(0);
+  46   1        Set_line(0);
+  47   1        UsartInit();
+  48   1        //显示框架
+  49   1        show_im(3,3,16,image1);//图标
+  50   1        show_ch(1,0,40,ch1+32*0);//时
+  51   1        show_ch(2,0,16,ch1+32*1);//分
+  52   1        show_ch(2,0,48,ch1+32*2);//秒
+  53   1        //经度
+  54   1        show_ch(1,2,40,ch1+32*3);//经
+C51 COMPILER V9.59.0.0   MAIN                                                              06/27/2025 21:57:59 PAGE 2   
+
+  55   1        show_ch(2,2,16,ch1+32*5);//度
+  56   1        show_ch(2,2,48,ch1+32*6);//分
+  57   1        //维度
+  58   1        show_ch(1,4,40,ch1+32*4);//维
+  59   1        show_ch(2,4,16,ch1+32*5);//度
+  60   1        show_ch(2,4,48,ch1+32*6);//分
+  61   1        
+  62   1        
+  63   1        while(1)
+  64   1        { 
+  65   2        show_num(1,0,24,num+16*(GPS_INFO.time_hour[0]));//时 十位
+  66   2        show_num(1,0,32,num+16*(GPS_INFO.time_hour[1]));//时 个位
+  67   2        
+  68   2        show_num(2,0,0,num+16*(GPS_INFO.time_min[0]));//分 十位
+  69   2        show_num(2,0,8,num+16*(GPS_INFO.time_min[1]));//分 个位
+  70   2        
+  71   2        show_num(2,0,32,num+16*(GPS_INFO.time_sec[0]));//秒 十位
+  72   2        show_num(2,0,40,num+16*(GPS_INFO.time_sec[1]));//秒 个位
+  73   2          
+  74   2        if(GPS_INFO.EW=='E')
+  75   2          show_ch(1,2,24,ch1+32*7);//东
+  76   2        else if(GPS_INFO.EW=='W')
+  77   2          show_ch(1,2,24,ch1+32*8);//西
+  78   2          
+  79   2        show_num(1,2,56,num+16*(GPS_INFO.latiude_Degree[0]));//经度—度 百位
+  80   2        show_num(2,2,0,num+16*(GPS_INFO.latiude_Degree[1]));//经度—度 十位
+  81   2        show_num(2,2,8,num+16*(GPS_INFO.latiude_Degree[2]));//经度—度 个位
+  82   2        
+  83   2        show_num(2,2,32,num+16*(GPS_INFO.latiude_Degree[3]));//经度—分 十位
+  84   2        show_num(2,2,40,num+16*(GPS_INFO.latiude_Degree[4]));//经度—分 个位
+  85   2          
+  86   2        if(GPS_INFO.NS=='S')
+  87   2          show_ch(1,4,24,ch1+32*9);//南
+  88   2        else if(GPS_INFO.NS=='N')
+  89   2          show_ch(1,4,24,ch1+32*10);//北
+  90   2        
+  91   2        show_num(2,4,0,num+16*(GPS_INFO.longitude_Degree[0]));//维度—度 十位
+  92   2        show_num(2,4,8,num+16*(GPS_INFO.longitude_Degree[1]));//维度—度 个位
+  93   2        
+  94   2        show_num(2,4,32,num+16*(GPS_INFO.longitude_Degree[2]));//维度—分 十位
+  95   2        show_num(2,4,40,num+16*(GPS_INFO.longitude_Degree[3]));//维度—分 个位
+  96   2          ;
+  97   2        }
+  98   1      }
+  99            //$GPGGA,194635.656,0000.033333,N,00000.033333,E,1,9,0,0,M,0,M,,*42
+ 100            //串口接收中断
+ 101          void Usart() interrupt 4
+ 102          {
+ 103   1        unsigned char receiveData;
+ 104   1        if(RI)
+ 105   1        {
+ 106   2          receiveData=SBUF;//接收到的数据
+ 107   2          RI = 0;//清除接收中断标志位
+ 108   2          
+ 109   2          switch(RX_count)
+ 110   2          {
+ 111   3            case 0 : if(receiveData=='G')RX_count=1; break;
+ 112   3            case 1 : if(receiveData=='P')RX_count=2;
+ 113   3                      else RX_count=0;
+ 114   3                        break;
+ 115   3            case 2 : if(receiveData=='G')RX_count=3;
+ 116   3                      else RX_count=0;
+C51 COMPILER V9.59.0.0   MAIN                                                              06/27/2025 21:57:59 PAGE 3   
+
+ 117   3                        break;
+ 118   3            case 3 : if(receiveData=='G')RX_count=4;
+ 119   3                      else RX_count=0;
+ 120   3                        break;
+ 121   3            case 4 : if(receiveData=='A')RX_count=5; //获取到GPGGA字头
+ 122   3                      else RX_count=0;
+ 123   3                        break;
+ 124   3      
+ 125   3            case 5 : if(receiveData==',')RX_count=6;
+ 126   3                      else RX_count=0;
+ 127   3                        break;
+ 128   3      
+ 129   3            case 6 :                        
+ 130   3                      GPS_INFO.time_hour[GPS_i]=receiveData-'0';//GPS - 时
+ 131   3                      GPS_i++;
+ 132   3                      if(GPS_i>1){RX_count=7;GPS_i=0;}
+ 133   3                        break;
+ 134   3            case 7 : GPS_INFO.time_min[GPS_i]=receiveData-'0';//GPS - 分
+ 135   3                      GPS_i++;
+ 136   3                      if(GPS_i>1){RX_count=8;GPS_i=0;}
+ 137   3                        break;
+ 138   3            case 8 : GPS_INFO.time_sec[GPS_i]=receiveData-'0';//GPS - 秒
+ 139   3                      GPS_i++;
+ 140   3                      if(GPS_i>1){RX_count=9;GPS_i=0;}
+ 141   3                        break;
+ 142   3      
+ 143   3            case 9 : if(receiveData==',')RX_count=10;//跳过秒的小数位
+ 144   3                        break;
+ 145   3                      
+ 146   3            case 10 : GPS_INFO.longitude_Degree[GPS_i]=receiveData-'0';//GPS - 维度
+ 147   3                      GPS_i++;
+ 148   3                      if(GPS_i>3){RX_count=11;GPS_i=0;}
+ 149   3                        break;
+ 150   3                      
+ 151   3            case 11 : if(receiveData==',')RX_count=12;//跳过维度的小数位
+ 152   3                        break;
+ 153   3                      
+ 154   3            case 12 : GPS_INFO.NS=receiveData;RX_count=13;//南北纬
+ 155   3                        break;
+ 156   3                      
+ 157   3            case 13 : RX_count=14;break;
+ 158   3                      
+ 159   3            case 14 : GPS_INFO.latiude_Degree[GPS_i]=receiveData-'0';//GPS - 经度
+ 160   3                      GPS_i++;
+ 161   3                      if(GPS_i>4){RX_count=15;GPS_i=0;}
+ 162   3                        break;
+ 163   3      
+ 164   3            case 15 : if(receiveData==',')RX_count=16;//跳过经度的小数位
+ 165   3                        break;
+ 166   3                      
+ 167   3            case 16 : GPS_INFO.EW=receiveData;RX_count=0;//东西经
+ 168   3                      break;
+ 169   3      
+ 170   3            default : break;
+ 171   3          }
+ 172   2      
+ 173   2        }
+ 174   1      
+ 175   1        else
+ 176   1        TI = 0; 
+ 177   1      }
+ 178            
+C51 COMPILER V9.59.0.0   MAIN                                                              06/27/2025 21:57:59 PAGE 4   
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1121    ----
+   CONSTANT SIZE    =    704    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     19    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
