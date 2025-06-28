@@ -112,25 +112,26 @@ void Usart() interrupt 4
         switch (RX_count)
         {
             // ----------------- 头部 $GNRMC, -----------------
-            case 0: RX_count = (receiveData == 'G') ? 1 : 0; break;
-            case 1: RX_count = (receiveData == 'N') ? 2 : 0; break;
-            case 2: RX_count = (receiveData == 'R') ? 3 : 0; break;
-            case 3: RX_count = (receiveData == 'M') ? 4 : 0; break;
-            case 4: RX_count = (receiveData == 'C') ? 5 : 0; break;
-            case 5: RX_count = (receiveData == ',') ? 6 : 0; break;
+            case 0: RX_count = (receiveData == '$') ? 1 : 0; break;
+            case 1: RX_count = (receiveData == 'G') ? 2 : 0; break;
+            case 2: RX_count = (receiveData == 'N') ? 3 : 0; break;
+            case 3: RX_count = (receiveData == 'R') ? 4 : 0; break;
+            case 4: RX_count = (receiveData == 'M') ? 5 : 0; break;
+            case 5: RX_count = (receiveData == 'C') ? 6 : 0; break;
+            case 6: RX_count = (receiveData == ',') ? 7 : 0; break;
 
             // ----------------- 6~8 跳过字段1(时间)和字段2(状态A/V) -----------------
-            case 6:
-                if (receiveData == ',') RX_count = 7;
-                break;
             case 7:
                 if (receiveData == ',') RX_count = 8;
                 break;
+            case 8:
+                if (receiveData == ',') RX_count = 9;
+                break;
 
             // ----------------- 8: 纬度字段（数字部分） -----------------
-            case 8:
+            case 9:
                 if (receiveData == ',') {
-                    RX_count = 9;
+                    RX_count = 10;
                     GPS_i = 0;
                 }
                 else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 5)
@@ -138,20 +139,20 @@ void Usart() interrupt 4
                 break;
 
             // ----------------- 9: N/S方向 -----------------
-            case 9:
+            case 10:
                 GPS_INFO.NS = receiveData;
-                RX_count = 10;
+                RX_count = 11;
                 break;
 
             // ----------------- 10: 逗号之后到经度字段 -----------------
-            case 10:
-                if (receiveData == ',') RX_count = 11;
+            case 11:
+                if (receiveData == ',') RX_count = 12;
                 break;
 
             // ----------------- 11: 经度字段（数字部分） -----------------
-            case 11:
+            case 12:
                 if (receiveData == ',') {
-                    RX_count = 12;
+                    RX_count = 13;
                     GPS_i = 0;
                 }
                 else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 4)
@@ -159,7 +160,7 @@ void Usart() interrupt 4
                 break;
 
             // ----------------- 12: E/W方向 -----------------
-            case 12:
+            case 13:
                 GPS_INFO.EW = receiveData;
                 RX_count = 0;
                 break;

@@ -1,4 +1,4 @@
-C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 1   
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 19:34:18 PAGE 1   
 
 
 C51 COMPILER V9.59.0.0, COMPILATION OF MODULE MAIN
@@ -62,7 +62,7 @@ line level    source
   52           * 主函数
   53           * 初始化LCD并循环刷新显示
   54           */
-C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 2   
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 19:34:18 PAGE 2   
 
   55          void main()
   56          {
@@ -124,74 +124,75 @@ line level    source
  112   2              switch (RX_count)
  113   2              {
  114   3                  // ----------------- 头部 $GNRMC, -----------------
- 115   3                  case 0: RX_count = (receiveData == 'G') ? 1 : 0; break;
- 116   3                  case 1: RX_count = (receiveData == 'N') ? 2 : 0; break;
-C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 3   
+ 115   3                  case 0: RX_count = (receiveData == '$') ? 1 : 0; break;
+ 116   3                  case 1: RX_count = (receiveData == 'G') ? 2 : 0; break;
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 19:34:18 PAGE 3   
 
- 117   3                  case 2: RX_count = (receiveData == 'R') ? 3 : 0; break;
- 118   3                  case 3: RX_count = (receiveData == 'M') ? 4 : 0; break;
- 119   3                  case 4: RX_count = (receiveData == 'C') ? 5 : 0; break;
- 120   3                  case 5: RX_count = (receiveData == ',') ? 6 : 0; break;
- 121   3      
- 122   3                  // ----------------- 6~8 跳过字段1(时间)和字段2(状态A/V) -----------------
- 123   3                  case 6:
- 124   3                      if (receiveData == ',') RX_count = 7;
- 125   3                      break;
- 126   3                  case 7:
- 127   3                      if (receiveData == ',') RX_count = 8;
- 128   3                      break;
- 129   3      
- 130   3                  // ----------------- 8: 纬度字段（数字部分） -----------------
- 131   3                  case 8:
- 132   3                      if (receiveData == ',') {
- 133   4                          RX_count = 9;
- 134   4                          GPS_i = 0;
- 135   4                      }
- 136   3                      else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 5)
- 137   3                          GPS_INFO.latiude_Degree[GPS_i++] = receiveData - '0';
- 138   3                      break;
- 139   3      
- 140   3                  // ----------------- 9: N/S方向 -----------------
- 141   3                  case 9:
- 142   3                      GPS_INFO.NS = receiveData;
- 143   3                      RX_count = 10;
- 144   3                      break;
- 145   3      
- 146   3                  // ----------------- 10: 逗号之后到经度字段 -----------------
- 147   3                  case 10:
- 148   3                      if (receiveData == ',') RX_count = 11;
- 149   3                      break;
- 150   3      
- 151   3                  // ----------------- 11: 经度字段（数字部分） -----------------
- 152   3                  case 11:
- 153   3                      if (receiveData == ',') {
- 154   4                          RX_count = 12;
- 155   4                          GPS_i = 0;
- 156   4                      }
- 157   3                      else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 4)
- 158   3                          GPS_INFO.longitude_Degree[GPS_i++] = receiveData - '0';
- 159   3                      break;
- 160   3      
- 161   3                  // ----------------- 12: E/W方向 -----------------
- 162   3                  case 12:
- 163   3                      GPS_INFO.EW = receiveData;
- 164   3                      RX_count = 0;
- 165   3                      break;
- 166   3      
- 167   3                  default:
- 168   3                      RX_count = 0;
- 169   3                      break;
- 170   3              }
- 171   2          }
- 172   1          else
- 173   1              TI = 0;
- 174   1      }
+ 117   3                  case 2: RX_count = (receiveData == 'N') ? 3 : 0; break;
+ 118   3                  case 3: RX_count = (receiveData == 'R') ? 4 : 0; break;
+ 119   3                  case 4: RX_count = (receiveData == 'M') ? 5 : 0; break;
+ 120   3                  case 5: RX_count = (receiveData == 'C') ? 6 : 0; break;
+ 121   3                  case 6: RX_count = (receiveData == ',') ? 7 : 0; break;
+ 122   3      
+ 123   3                  // ----------------- 6~8 跳过字段1(时间)和字段2(状态A/V) -----------------
+ 124   3                  case 7:
+ 125   3                      if (receiveData == ',') RX_count = 8;
+ 126   3                      break;
+ 127   3                  case 8:
+ 128   3                      if (receiveData == ',') RX_count = 9;
+ 129   3                      break;
+ 130   3      
+ 131   3                  // ----------------- 8: 纬度字段（数字部分） -----------------
+ 132   3                  case 9:
+ 133   3                      if (receiveData == ',') {
+ 134   4                          RX_count = 10;
+ 135   4                          GPS_i = 0;
+ 136   4                      }
+ 137   3                      else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 5)
+ 138   3                          GPS_INFO.latiude_Degree[GPS_i++] = receiveData - '0';
+ 139   3                      break;
+ 140   3      
+ 141   3                  // ----------------- 9: N/S方向 -----------------
+ 142   3                  case 10:
+ 143   3                      GPS_INFO.NS = receiveData;
+ 144   3                      RX_count = 11;
+ 145   3                      break;
+ 146   3      
+ 147   3                  // ----------------- 10: 逗号之后到经度字段 -----------------
+ 148   3                  case 11:
+ 149   3                      if (receiveData == ',') RX_count = 12;
+ 150   3                      break;
+ 151   3      
+ 152   3                  // ----------------- 11: 经度字段（数字部分） -----------------
+ 153   3                  case 12:
+ 154   3                      if (receiveData == ',') {
+ 155   4                          RX_count = 13;
+ 156   4                          GPS_i = 0;
+ 157   4                      }
+ 158   3                      else if (receiveData >= '0' && receiveData <= '9' && GPS_i < 4)
+ 159   3                          GPS_INFO.longitude_Degree[GPS_i++] = receiveData - '0';
+ 160   3                      break;
+ 161   3      
+ 162   3                  // ----------------- 12: E/W方向 -----------------
+ 163   3                  case 13:
+ 164   3                      GPS_INFO.EW = receiveData;
+ 165   3                      RX_count = 0;
+ 166   3                      break;
+ 167   3      
+ 168   3                  default:
+ 169   3                      RX_count = 0;
+ 170   3                      break;
+ 171   3              }
+ 172   2          }
+ 173   1          else
+ 174   1              TI = 0;
+ 175   1      }
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =    495    ----
-C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 00:30:37 PAGE 4   
+C51 COMPILER V9.59.0.0   MAIN                                                              06/28/2025 19:34:18 PAGE 4   
 
+   CODE SIZE        =    512    ----
    CONSTANT SIZE    =    704    ----
    XDATA SIZE       =   ----    ----
    PDATA SIZE       =   ----    ----
